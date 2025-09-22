@@ -1,0 +1,15 @@
+'Hostname': 'e2cb2550196b'
+'Domainname': ''
+'User': '', 'AttachStdin': False, 'AttachStdout': True, 'AttachStderr': True
+'ExposedPorts': {'3000/tcp': {}, '3000/udp': {}, '443/tcp': {}, '443/udp': {}, '53/tcp': {}, '53/udp': {}, '5443/tcp': {}, '5443/udp': {}, '6060/tcp': {}, '67/udp': {}, '68/udp': {}, '80/tcp': {}, '853/tcp': {}, '853/udp': {}}, 
+'Tty': False, 
+'OpenStdin': False, 
+'StdinOnce': False, 
+'Env': ['PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'],
+'Cmd': ['--no-check-update', '-c', '/opt/adguardhome/conf/AdGuardHome.yaml', '-w', '/opt/adguardhome/work'],
+'Image': 'adguard/adguardhome', 
+'Volumes': None,
+'WorkingDir': '/opt/adguardhome/work',
+'Entrypoint': ['/opt/adguardhome/AdGuardHome'], 
+'OnBuild': None, 
+'Labels': {'com.docker.compose.config-hash': '5398d923646e9604988778beaa05af062a908c4bdf358e095bdba2f2854ec841', 'com.docker.compose.container-number': '1', 'com.docker.compose.depends_on': '', 'com.docker.compose.image': 'sha256:dec26deaafcff748c4b70202473c0f81aa4ebfbe47f4b3e613d1b101be1d4dec', 'com.docker.compose.oneoff': 'False', 'com.docker.compose.project': 'dns', 'com.docker.compose.project.config_files': '/opt/dns/docker-compose.yml', 'com.docker.compose.project.working_dir': '/opt/dns', 'com.docker.compose.service': 'adguardhome', 'com.docker.compose.version': '2.39.2', 'maintainer': 'AdGuard Team <devteam@adguard.com>', 'org.opencontainers.image.authors': 'AdGuard Team <devteam@adguard.com>', 'org.opencontainers.image.created': '2025-09-15T12:22:41Z', 'org.opencontainers.image.description': 'Network-wide ads & trackers blocking DNS server', 'org.opencontainers.image.documentation': 'https://github.com/AdguardTeam/AdGuardHome/wiki/', 'org.opencontainers.image.licenses': 'GPL-3.0', 'org.opencontainers.image.revision': '1b6758843d2ffd8971c5e60b9bfa0863d3d89bb7', 'org.opencontainers.image.source': 'https://github.com/AdguardTeam/AdGuardHome', 'org.opencontainers.image.title': 'AdGuard Home', 'org.opencontainers.image.url': 'https://adguard.com/en/adguard-home/overview.html', 'org.opencontainers.image.vendor': 'AdGuard', 'org.opencontainers.image.version': 'v0.107.66'}}
