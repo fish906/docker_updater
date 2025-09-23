@@ -1,38 +1,43 @@
-import docker
 import logging
-import dotenv
+import docker
+import re
 
 logger = logging.getLogger(__name__)
-client = docker.from_env()
-logging.basicConfig(filename='updater.log', level=logging.INFO)
+logging.basicConfig(level=logging.INFO)
 
-def fetch_images():
-    container_id_list = []
-    list_of_images = []
+client = docker.from_env()
+
+def fetch_container_images():
+    container_images = []
 
     for container in client.containers.list():
-        container_id_list.append(container.id)
-        
+        image_name = container.attrs['Config']['Image']
+        container_images.append(image_name)
 
-    for image in container_id_list:
-        conti = client.containers.get(image)
-        images = conti.attrs['Config']['Image']
-        list_of_images.append(images)
-    
-    return container_id_list
+    return container_images
 
-def get_new_image_id():
-    list_of_images = fetch_images()
-    conti = client.containers.get(list_of_images[2])
-    images = conti.id
-    print(client.images.get_registry_data(images))
-    print(images)
+def get_local_digest():
+    container_images = fetch_container_images()
 
+    for image_name in container_images:
+        local_image = client.images.get(image_name)
+        local_digest = local_image.attrs.get("RepoDigests", [None])[0]
 
-def delete_unused_images():
-    image_prune = client.images.prune()
-    print(image_prune)
+        return local_digest
+
+container_image = fetch_container_images()
+
+def get_local_digest():
+    local_digest_list = []
+
+    logger.info('Extracting local digest...')
+    for image_name in container_image:
+        local_image = client.images.get(image_name)
+        local_digest = local_image.attrs.get("RepoDigests", [None])[0]
+        local_digest_list.append(local_digest)
+
+    return local_digest_list
     
 if __name__ == '__main__':
-    fetch_images()
-    get_new_image_id()
+    fetch_container_images()
+    check_for_update()
