@@ -15,6 +15,7 @@ class DockerUpdateChecker:
     def __init__(self, exclude_containers=None, exclude_images=None):
         try:
             self.client = docker.from_env()
+
         except docker.errors.DockerException as e:
             logger.error(f"Failed to connect to Docker: {e}")
             sys.exit(1)
@@ -106,6 +107,7 @@ class DockerUpdateChecker:
                 logger.info(f"  Update available for {container_name} ({image_name})")
                 updates_available.append({
                     'container': container_name,
+                    'container_id': container['id'],
                     'image': image_name,
                     'local_digest': local_digest,
                     'remote_digest': remote_digest
@@ -121,6 +123,79 @@ class DockerUpdateChecker:
         return {
             'updates_available': updates_available,
             'up_to_date': up_to_date
+        }
+    
+    def update_containers(self, containers_to_update: List[Dict]) -> Dict[str, List[Dict]]:
+        successful = []
+        failed = []
+
+        for container_info in containers_to_update:
+            container_name = container_info['container']
+            container_id = container_info['container_id']
+            image_name = container_info['image']
+            
+            try:
+                logger.info(f"Updating {container_name}...")
+                container = self.client.containers.get(container_id)
+            
+                config = container.attrs['Config']
+                host_config = container.attrs['HostConfig']
+                network_settings = container.attrs['NetworkSettings']
+                
+                logger.info(f"  Pulling new image: {image_name}")
+                self.client.images.pull(image_name)
+                
+                logger.info(f"  Stopping container: {container_name}")
+                container.stop(timeout=10)
+                
+                logger.info(f"  Removing old container: {container_name}")
+                container.remove()
+                
+                logger.info(f"  Recreating container: {container_name}")
+                
+                networks = {}
+                if 'Networks' in network_settings:
+                    for net_name, net_config in network_settings['Networks'].items():
+                        if net_name != 'bridge' or len(network_settings['Networks']) == 1:
+                            networks[net_name] = {}
+                
+                new_container = self.client.containers.create(
+                    image=image_name,
+                    name=container_name,
+                    command=config.get('Cmd'),
+                    environment=config.get('Env'),
+                    volumes=host_config.get('Binds'),
+                    ports=host_config.get('PortBindings'),
+                    network=list(networks.keys())[0] if networks else None,
+                    restart_policy=host_config.get('RestartPolicy'),
+                    detach=True
+                )
+                
+                logger.info(f"  Starting new container: {container_name}")
+                new_container.start()
+                
+                if len(networks) > 1:
+                    for net_name in list(networks.keys())[1:]:
+                        network = self.client.networks.get(net_name)
+                        network.connect(new_container)
+                
+                logger.info(f"  Successfully updated {container_name}")
+                successful.append({
+                    'container': container_name,
+                    'image': image_name
+                })
+                
+            except Exception as e:
+                logger.error(f"  Failed to update {container_name}: {e}")
+                failed.append({
+                    'container': container_name,
+                    'image': image_name,
+                    'error': str(e)
+                })
+        
+        return {
+            'successful': successful,
+            'failed': failed
         }
     
     def print_summary(self, results: Dict):
@@ -152,13 +227,15 @@ def load_env_file(env_path='.env') -> Dict[str, Set[str]]:
     exclude_containers = set()
     exclude_images = set()
     log_level = None
+    auto_update = False
 
     if not Path(env_path).exists():
         logger.warning(f"No .env file found at {env_path}")
         return {
             'containers': exclude_containers,
             'images': exclude_images,
-            'log_level': log_level
+            'log_level': log_level,
+            'auto_update': auto_update
         }
 
     try:
@@ -189,6 +266,9 @@ def load_env_file(env_path='.env') -> Dict[str, Set[str]]:
                         )
                     elif key == 'LOG_LEVEL' and value:
                         log_level = value.upper()
+
+                    elif key == 'AUTO_UPDATE' and value:
+                        auto_update = value.lower() in ('true')
         
         if exclude_containers:
             logger.debug(f"Loaded {len(exclude_containers)} container exclusions from {env_path}")
@@ -198,14 +278,18 @@ def load_env_file(env_path='.env') -> Dict[str, Set[str]]:
 
         if log_level:
             logger.debug(f"Log level set to {log_level} from {env_path}")
-            
+        
+        if auto_update:
+            logger.info(f"Auto-update enabled from {env_path}")
+
     except Exception as e:
         logger.error(f"Error reading .env file: {e}")
     
     return {
         'containers': exclude_containers,
         'images': exclude_images,
-        'log_level': log_level
+        'log_level': log_level,
+        'auto_update': auto_update
     }
 
 
@@ -221,6 +305,7 @@ def main():
 
     exclude_containers = env_config['containers']
     exclude_images = env_config['images']
+    auto_update = env_config['auto_update']
 
     if exclude_containers:
         logger.info(f"Excluding containers: {', '.join(sorted(exclude_containers))}")
@@ -235,8 +320,39 @@ def main():
     results = checker.check_for_updates()
     checker.print_summary(results)
     
-    if results['updates_available']:
+    if auto_update and results['updates_available']:
+        logger.info("\n" + "="*60)
+        logger.info("AUTO_UPDATE enabled - Starting container updates...")
+        logger.info("="*60 + "\n")
+        
+        update_results = checker.update_containers(results['updates_available'])
+        
+        print("\n" + "="*60)
+        print("UPDATE SUMMARY")
+        print("="*60)
+        
+        if update_results['successful']:
+            print(f"\n  Successfully Updated ({len(update_results['successful'])}):")
+            for item in update_results['successful']:
+                print(f"  - {item['container']}: {item['image']}")
+        
+        if update_results['failed']:
+            print(f"\n  Failed Updates ({len(update_results['failed'])}):")
+            for item in update_results['failed']:
+                print(f"  - {item['container']}: {item['error']}")
+        
+        print("\n" + "="*60)
+        
+        if update_results['failed']:
+            logger.warning("Some container updates failed!")
+            
+        else:
+            logger.info("All containers updated successfully!")
+
+    
+    elif results['updates_available']:
         logger.info("Updates are available!")
+    
     else:
         logger.info("All containers are up to date")
 
