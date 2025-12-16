@@ -48,6 +48,7 @@ class DockerUpdateChecker:
 
                 container_images.append({
                     'name': container_name,
+                    'id': container.id,
                     'image': image_name
                 })
                 logger.debug(f"Found container: {container_name} using {image_name}")
@@ -345,7 +346,7 @@ def main():
         
         if update_results['failed']:
             logger.warning("Some container updates failed!")
-            
+
         else:
             logger.info("All containers updated successfully!")
 
