@@ -3,6 +3,9 @@ import docker
 import sys
 from typing import List, Dict, Set
 from pathlib import Path
+from datetime import datetime
+from croniter import croniter
+import time
 
 logging.basicConfig(
     level=logging.INFO,
@@ -229,6 +232,7 @@ def load_env_file(env_path='.env') -> Dict[str, Set[str]]:
     exclude_images = set()
     log_level = None
     auto_update = False
+    watchless_schedule = '0 0 * * *'
 
     if not Path(env_path).exists():
         logger.warning(f"No .env file found at {env_path}")
@@ -236,7 +240,8 @@ def load_env_file(env_path='.env') -> Dict[str, Set[str]]:
             'containers': exclude_containers,
             'images': exclude_images,
             'log_level': log_level,
-            'auto_update': auto_update
+            'auto_update': auto_update,
+            'watchless_schedule': watchless_schedule
         }
 
     try:
@@ -270,6 +275,9 @@ def load_env_file(env_path='.env') -> Dict[str, Set[str]]:
 
                     elif key == 'AUTO_UPDATE' and value:
                         auto_update = value.lower() in ('true')
+
+                    elif key == 'WATCHLESS_SCHEDULE' and value:
+                        watchless_schedule = value
         
         if exclude_containers:
             logger.debug(f"Loaded {len(exclude_containers)} container exclusions from {env_path}")
@@ -283,6 +291,9 @@ def load_env_file(env_path='.env') -> Dict[str, Set[str]]:
         if auto_update:
             logger.info(f"Auto-update enabled from {env_path}")
 
+        if watchless_schedule:
+            logger.info(f'Watchless schedule set to {watchless_schedule}')
+
     except Exception as e:
         logger.error(f"Error reading .env file: {e}")
     
@@ -290,9 +301,82 @@ def load_env_file(env_path='.env') -> Dict[str, Set[str]]:
         'containers': exclude_containers,
         'images': exclude_images,
         'log_level': log_level,
-        'auto_update': auto_update
+        'auto_update': auto_update,
+        'watchless_schedule': watchless_schedule
     }
 
+
+def validate_cron_schedule(cron_expression: str) -> bool:
+    try:
+        croniter(cron_expression)
+        return True
+    
+    except Exception as e:
+        logger.error(f"Invalid cron expression '{cron_expression}': {e}")
+        return False
+
+def get_next_run_time(cron_expression: str) -> datetime:
+    cron = croniter(cron_expression, datetime.now())
+    return cron.get_next(datetime)
+
+def run_update_check():
+    print("\n" + "="*60)
+    print(f"Running scheduled update check at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("Running Watchless once on startup")
+    print("="*60 + "\n")
+    
+    try:
+        env_config = load_env_file('.env')
+        
+        exclude_containers = env_config['containers']
+        exclude_images = env_config['images']
+        auto_update = env_config['auto_update']
+        
+        checker = DockerUpdateChecker(
+            exclude_containers=exclude_containers,
+            exclude_images=exclude_images
+        )
+        
+        results = checker.check_for_updates()
+        checker.print_summary(results)
+        
+        if auto_update and results['updates_available']:
+            logger.info("\n" + "="*60)
+            logger.info("AUTO_UPDATE enabled - Starting container updates...")
+            logger.info("="*60 + "\n")
+            
+            update_results = checker.update_containers(results['updates_available'])
+            
+            print("\n" + "="*60)
+            print("UPDATE SUMMARY")
+            print("="*60)
+            
+            if update_results['successful']:
+                print(f"\n✓ Successfully Updated ({len(update_results['successful'])}):")
+                for item in update_results['successful']:
+                    print(f"  - {item['container']}: {item['image']}")
+            
+            if update_results['failed']:
+                print(f"\n✗ Failed Updates ({len(update_results['failed'])}):")
+                for item in update_results['failed']:
+                    print(f"  - {item['container']}: {item['error']}")
+            
+            print("\n" + "="*60)
+            
+            if update_results['failed']:
+                logger.warning("Some container updates failed!")
+
+            else:
+                logger.info("All containers updated successfully!")
+        
+        elif results['updates_available']:
+            logger.info("\nUpdates are available! Set AUTO_UPDATE=true in .env to automatically update containers.")
+
+        else:
+            logger.info("All containers are up to date")
+            
+    except Exception as e:
+        logger.error(f"Error during scheduled update check: {e}")
 
 def main():
     env_config = load_env_file('.env')
@@ -307,56 +391,102 @@ def main():
     exclude_containers = env_config['containers']
     exclude_images = env_config['images']
     auto_update = env_config['auto_update']
+    watchless_schedule = env_config['watchless_schedule']
 
     if exclude_containers:
         logger.info(f"Excluding containers: {', '.join(sorted(exclude_containers))}")
     if exclude_images:
         logger.info(f"Excluding image patterns: {', '.join(sorted(exclude_images))}")
-    
-    checker = DockerUpdateChecker(
-        exclude_containers=exclude_containers,
-        exclude_images=exclude_images
-    )
-    
-    results = checker.check_for_updates()
-    checker.print_summary(results)
-    
-    if auto_update and results['updates_available']:
-        logger.info("\n" + "="*60)
-        logger.info("AUTO_UPDATE enabled - Starting container updates...")
-        logger.info("="*60 + "\n")
-        
-        update_results = checker.update_containers(results['updates_available'])
-        
-        print("\n" + "="*60)
-        print("UPDATE SUMMARY")
-        print("="*60)
-        
-        if update_results['successful']:
-            print(f"\n  Successfully Updated ({len(update_results['successful'])}):")
-            for item in update_results['successful']:
-                print(f"  - {item['container']}: {item['image']}")
-        
-        if update_results['failed']:
-            print(f"\n  Failed Updates ({len(update_results['failed'])}):")
-            for item in update_results['failed']:
-                print(f"  - {item['container']}: {item['error']}")
-        
-        print("\n" + "="*60)
-        
-        if update_results['failed']:
-            logger.warning("Some container updates failed!")
+
+    if watchless_schedule:
+        if not validate_cron_schedule(watchless_schedule):
+            logger.error("Invalid cron schedule. Running once and exiting.")
+            watchless_schedule = None
 
         else:
-            logger.info("All containers updated successfully!")
+            logger.info("="*60)
+            logger.info("SCHEDULED MODE (CRON)")
+            logger.info("="*60)
+            logger.info(f"Cron expression: {watchless_schedule}")
+            
+            next_run = get_next_run_time(watchless_schedule)
+            logger.info(f"Next run scheduled at: {next_run.strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info("="*60 + "\n")
+            
+            last_run = None
+            
+            try:
+                while True:
+                    now = datetime.now()
+                    
+                    if last_run is None:
+                        cron = croniter(watchless_schedule, now)
+                        next_scheduled = cron.get_next(datetime)
+                        
+                        time_until_next = (next_scheduled - now).total_seconds()
+                        if time_until_next <= 60:
+                            run_update_check()
+                            last_run = now
+                            next_run = get_next_run_time(watchless_schedule)
+                            logger.info(f"Next run scheduled at: {next_run.strftime('%Y-%m-%d %H:%M:%S')}\n")
 
-    
-    elif results['updates_available']:
-        logger.info("Updates are available!")
-    
-    else:
-        logger.info("All containers are up to date")
+                    else:
+                        cron = croniter(watchless_schedule, last_run)
+                        next_scheduled = cron.get_next(datetime)
+                        
+                        if now >= next_scheduled:
+                            run_update_check()
+                            last_run = now
+                            next_run = get_next_run_time(watchless_schedule)
+                            logger.info(f"Next run scheduled at: {next_run.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    
+                    time.sleep(30)
+                    
+            except KeyboardInterrupt:
+                logger.info("\nScheduler stopped by user")
+                sys.exit(0)
 
+    if not watchless_schedule:
+        checker = DockerUpdateChecker(
+            exclude_containers=exclude_containers,
+            exclude_images=exclude_images
+        )
+        
+        results = checker.check_for_updates()
+        checker.print_summary(results)
+        
+        if auto_update and results['updates_available']:
+            logger.info("\n" + "="*60)
+            logger.info("AUTO_UPDATE enabled - Starting container updates...")
+            logger.info("="*60 + "\n")
+            
+            update_results = checker.update_containers(results['updates_available'])
+            
+            print("\n" + "="*60)
+            print("UPDATE SUMMARY")
+            print("="*60)
+            
+            if update_results['successful']:
+                print(f"\n  Successfully Updated ({len(update_results['successful'])}):")
+                for item in update_results['successful']:
+                    print(f"  - {item['container']}: {item['image']}")
+            
+            if update_results['failed']:
+                print(f"\n  Failed Updates ({len(update_results['failed'])}):")
+                for item in update_results['failed']:
+                    print(f"  - {item['container']}: {item['error']}")
+            
+            print("\n" + "="*60)
+            
+            if update_results['failed']:
+                logger.warning("Some container updates failed!")
+            else:
+                logger.info("All containers updated successfully!")
+        
+        elif results['updates_available']:
+            logger.info("\nUpdates are available! Set AUTO_UPDATE=true in .env to automatically update containers.")
+        else:
+            logger.info("All containers are up to date")
 
 if __name__ == '__main__':
     main()
