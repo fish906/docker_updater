@@ -1,3 +1,5 @@
 dotenv
 logging
 docker
+requests
+pymsteams
