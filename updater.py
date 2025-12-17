@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class DockerUpdateChecker:
-    def __init__(self, exclude_containers=None, exclude_images=None):
+    def __init__(self, exclude_containers=None, exclude_images=None, watchless_clean=False):
         try:
             self.client = docker.from_env()
 
@@ -25,6 +25,7 @@ class DockerUpdateChecker:
 
         self.exclude_containers = exclude_containers or set()
         self.exclude_images = exclude_images or set()
+        self.watchless_clean = watchless_clean
 
     def should_exclude(self, container_name: str, image_name: str) -> bool:
         if container_name in self.exclude_containers:
@@ -137,10 +138,15 @@ class DockerUpdateChecker:
             container_name = container_info['container']
             container_id = container_info['container_id']
             image_name = container_info['image']
+            old_image_id = None
             
             try:
                 logger.info(f"Updating {container_name}...")
                 container = self.client.containers.get(container_id)
+
+                if self.watchless_clean:
+                    old_image_id = container.image.id
+                    logger.debug(f"  Old image ID: {old_image_id}")
             
                 config = container.attrs['Config']
                 host_config = container.attrs['HostConfig']
@@ -182,11 +188,24 @@ class DockerUpdateChecker:
                     for net_name in list(networks.keys())[1:]:
                         network = self.client.networks.get(net_name)
                         network.connect(new_container)
+
+                if self.watchless_clean and old_image_id:
+                    try:
+                        logger.info(f"  Removing old image: {old_image_id[:12]}")
+                        self.client.images.remove(old_image_id, force=False)
+                        logger.info(f"    Old image removed successfully")
+
+                    except docker.errors.ImageNotFound:
+                        logger.debug(f"  Old image {old_image_id[:12]} already removed")
+
+                    except docker.errors.APIError as e:
+                        logger.warning(f"  Could not remove old image {old_image_id[:12]}: {e}")
                 
                 logger.info(f"  Successfully updated {container_name}")
                 successful.append({
                     'container': container_name,
-                    'image': image_name
+                    'image': image_name,
+                    'old_image_cleaned': self.watchless_clean and old_image_id is not None
                 })
                 
             except Exception as e:
@@ -233,6 +252,7 @@ def load_env_file(env_path='.env') -> Dict[str, Set[str]]:
     log_level = None
     auto_update = False
     watchless_schedule = '0 0 * * *'
+    watchless_clean = False
 
     if not Path(env_path).exists():
         logger.warning(f"No .env file found at {env_path}")
@@ -241,7 +261,8 @@ def load_env_file(env_path='.env') -> Dict[str, Set[str]]:
             'images': exclude_images,
             'log_level': log_level,
             'auto_update': auto_update,
-            'watchless_schedule': watchless_schedule
+            'watchless_schedule': watchless_schedule,
+            'watchless_clean': watchless_clean
         }
 
     try:
@@ -278,6 +299,9 @@ def load_env_file(env_path='.env') -> Dict[str, Set[str]]:
 
                     elif key == 'WATCHLESS_SCHEDULE' and value:
                         watchless_schedule = value
+
+                    elif key == 'WATCHLESS_CLEAN' and value:
+                        watchless_clean = value.lower() in ('true')
         
         if exclude_containers:
             logger.debug(f"Loaded {len(exclude_containers)} container exclusions from {env_path}")
@@ -294,6 +318,9 @@ def load_env_file(env_path='.env') -> Dict[str, Set[str]]:
         if watchless_schedule:
             logger.info(f'Watchless schedule set to {watchless_schedule}')
 
+        if watchless_clean:
+            logger.info(f"Watchless clean enabled - old images will be removed after updates")
+
     except Exception as e:
         logger.error(f"Error reading .env file: {e}")
     
@@ -302,7 +329,8 @@ def load_env_file(env_path='.env') -> Dict[str, Set[str]]:
         'images': exclude_images,
         'log_level': log_level,
         'auto_update': auto_update,
-        'watchless_schedule': watchless_schedule
+        'watchless_schedule': watchless_schedule,
+        'watchless_clean': watchless_clean
     }
 
 
@@ -392,6 +420,7 @@ def main():
     exclude_images = env_config['images']
     auto_update = env_config['auto_update']
     watchless_schedule = env_config['watchless_schedule']
+    watchless_clean = env_config['watchless_clean']
 
     if exclude_containers:
         logger.info(f"Excluding containers: {', '.join(sorted(exclude_containers))}")
