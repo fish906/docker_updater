@@ -4,15 +4,19 @@ from email.message import EmailMessage
 import logging
 import os
 import requests 
+from dotenv import load_dotenv # type: ignore
 import pymsteams # type: ignore
 from slack_sdk import WebClient # type: ignore
 from slack_sdk.errors import SlackApiError  # type: ignore
-from telegram import Bot # type: ignore
+
+load_dotenv()
 
 logging.basicConfig(
-    level=logging.INFO,
+    level= os.getenv("LOG_LEVEL", "INFO").upper(),
+    datefmt= '%Y/%m/%d %H:%M:%S',
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
 logger = logging.getLogger(__name__)
 
 def turn_message_into_dict(message):
@@ -24,11 +28,11 @@ def turn_message_into_dict(message):
 
 def notification_setup():
     notification_config = {
-        'email': False,
-        'ntfy': False,
-        'gotify': False,
-        'teams': False,
-        'slack': False,
+        'email': os.getenv("EMAIL_NOTIFICATION", default= False),
+        'ntfy': os.getenv("NTFY_NOTIFICATION", default= False),
+        'gotify': os.getenv("GOTIFY_NOTIFICATION", default= False),
+        'teams': os.getenv("MSTEAMS_NOTIFICATION", default= False),
+        'slack': os.getenv("SLACK_NOTIFICATION", default= False),
         'telegram': False,
         'signal': False
     }
@@ -37,16 +41,16 @@ def notification_setup():
 
 def notification_mail(message):
     port = 465
-    smptp_server_url = 'mail.example.com'
-    mail_address = 'sender@example.com'
-    smtp_password = 'password'
-    mail_reciever = 'reciever@example.com'
+    smptp_server_url = os.getenv("SMTP_SERVER_URL")
+    mail_address = os.getenv("MAIL_SENDER")
+    smtp_password = os.getenv("SMTP_PASSWORD")
+    mail_reciever = os.getenv("MAIL_RECIEVER")
 
     msg = EmailMessage()
     msg['Subject'] = 'Docker Updater Notification'
     msg['From'] = mail_address
     msg['To'] = mail_reciever
-    msg.set_content(message)
+    msg.set_content(message['body'])
 
     try:
         context = ssl.create_default_context()
@@ -57,12 +61,18 @@ def notification_mail(message):
         logger.info('Notification sent successfully via email!')
 
     except Exception as e:
-        logger.info(f'Error occured: {e}')
+        logger.info(f'Mail: Error occured: {e}')
 
     return
 
 def notification_ntfy(message):
-    ntfy_url = 'your-ntfy-url'
+    ntfy_url = os.getenv("NTFY_URL")
+
+    if ntfy_url:
+        logger.debug("ntfy url has been provided")
+
+    else:
+        logger.error("No url has been provided for ntfy!")
 
     try:
         r = requests.post(
@@ -70,41 +80,42 @@ def notification_ntfy(message):
             data=message['body'],
             headers={
                 'Title': message['title'],
-                'Priority': "default" # Priority levels: min, low, default, high, urgent
+                'Priority': os.getenv("NTFY_PRIORITY_LEVEL") # Priority levels: min, low, default, high, urgent
             }
         )
 
-        logger.info(f'Ntfy http status code: {r.status_code}')
         logger.info('Notification sent to ntfy!')
 
     except Exception as e:
-        logger.info(f'Error occured: {e}')
+        logger.error(f'Ntfy: Error occured: {e}')
 
     return 
 
 def notification_gotify(message):
-    gotify_apptoken = 'test_token'
-    gotify_url = "gotify.exaple.com"
+    gotify_apptoken = os.getenv("GOTIFY_APPTOKEN")
+    gotify_url = os.getenv("GOTIFY_URL")
     gotify_url_final = f'https://{gotify_url}/message?token={gotify_apptoken}'
 
     try:
         requests.post(gotify_url_final,
             json= {
                 "message": message['body'],
-                "priority": 1, # Options from 0 to 10
+                "priority": os.getenv("GOTIFY_PRIORITY_LEVEL", default=2), # Options from 0 to 10
                 "title": message['title']
         })
 
         logger.info('Notification sent to gotify!')
 
     except Exception as e:
-        logger.info(f'Error occured: {e}')
+        logger.info(f'Gotify: Error occured: {e}')
 
     return
 
 def notfication_teams(message):
+    msteams_webhook_url = os.getenv("MSTEAMS_URL")
+
     try:
-        teams_notification = pymsteams.connectorcard("MS Teams Webhook URL")
+        teams_notification = pymsteams.connectorcard(msteams_webhook_url)
         teams_notification.text(message['body'])
         teams_notification.title(message['title'])
         teams_notification.send()
@@ -112,7 +123,7 @@ def notfication_teams(message):
         logger.info('Notification sent to MS Teams!')
 
     except Exception as e:
-        logger.info(f'Error occured: {e}')
+        logger.info(f'TEAMS: Error occured: {e}')
 
 
     return
@@ -142,26 +153,27 @@ def notificaion_signal(message):
 
 
 if __name__ == '__main__':
+    setup = notification_setup()
     result = "4 Containers updated!"
     dict_message = turn_message_into_dict(result)
 
-    if notification_setup()['email']:
+    if setup['email'].lower() == 'true':
         notification_mail(dict_message)
 
-    if notification_setup()['ntfy']:
+    if setup['ntfy'].lower() == 'true':
         notification_ntfy(dict_message)
 
-    if notification_setup()['gotify']:
-        notification_ntfy(dict_message)
+    if setup['gotify'].lower == 'true':
+        notification_gotify(dict_message)
 
-    if notification_setup()['teams']:
-        notification_ntfy(dict_message)
+    if setup['teams'].lower() == 'true':
+        notfication_teams(dict_message)
 
-    if notification_setup()['slack']:
+    if setup['slack'].lower() == 'true':
         notification_slack(dict_message)
 
     #if notification_setup()['telegram']:
-    #    notification_slack(dict_message)
+    #    notification_telegram(dict_message)
 
     #if notification_setup()['signal']:
-    #    notification_slack(dict_message)
+    #    notification_signal(dict_message)
