@@ -1,14 +1,19 @@
 import logging
 import docker
 import sys
+import os
 from typing import List, Dict, Set
 from pathlib import Path
 from datetime import datetime
 from croniter import croniter
+from dotenv import load_dotenv # type: ignore
 import time
+
+load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,
+    datefmt= '%Y/%m/%d %H:%M:%S',
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -249,7 +254,7 @@ class DockerUpdateChecker:
 def load_env_file(env_path='.env') -> Dict[str, Set[str]]:
     exclude_containers = set()
     exclude_images = set()
-    log_level = None
+    log_level = os.getenv("LOG_LEVEL", "default")
     auto_update = False
     watchless_schedule = '0 0 * * *'
     watchless_clean = False
