@@ -5,6 +5,9 @@ import logging
 import os
 import requests 
 import pymsteams # type: ignore
+from slack_sdk import WebClient # type: ignore
+from slack_sdk.errors import SlackApiError  # type: ignore
+from telegram import Bot # type: ignore
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,7 +27,10 @@ def notification_setup():
         'email': False,
         'ntfy': False,
         'gotify': False,
-        'teams': False
+        'teams': False,
+        'slack': False,
+        'telegram': False,
+        'signal': False
     }
 
     return notification_config
@@ -36,14 +42,12 @@ def notification_mail(message):
     smtp_password = 'password'
     mail_reciever = 'reciever@example.com'
 
-    # Building the message
     msg = EmailMessage()
     msg['Subject'] = 'Docker Updater Notification'
     msg['From'] = mail_address
     msg['To'] = mail_reciever
     msg.set_content(message)
 
-    # Actually sending the message
     try:
         context = ssl.create_default_context()
         with smtplib.SMTP_SSL(smptp_server_url, port, context=context) as server:
@@ -61,7 +65,7 @@ def notification_ntfy(message):
     ntfy_url = 'your-ntfy-url'
 
     try:
-        requests.post(
+        r = requests.post(
             ntfy_url,
             data=message['body'],
             headers={
@@ -70,6 +74,7 @@ def notification_ntfy(message):
             }
         )
 
+        logger.info(f'Ntfy http status code: {r.status_code}')
         logger.info('Notification sent to ntfy!')
 
     except Exception as e:
@@ -80,7 +85,7 @@ def notification_ntfy(message):
 def notification_gotify(message):
     gotify_apptoken = 'test_token'
     gotify_url = "gotify.exaple.com"
-    gotify_url_final = f'https://{gotify_url}/message?token=<{gotify_apptoken}>'
+    gotify_url_final = f'https://{gotify_url}/message?token={gotify_apptoken}'
 
     try:
         requests.post(gotify_url_final,
@@ -113,6 +118,20 @@ def notfication_teams(message):
     return
 
 def notification_slack(message):
+    client = WebClient(token=os.getenv("SLACK_BOT_TOKEN"))
+    channel_id = os.getenv("SLACK_CHANNEL_NAME")
+
+    try:
+        result = client.chat_postMessage(
+            channel=channel_id,
+            text = message['body']
+        )
+
+        logger.debug(result)
+
+    except SlackApiError as e:
+        logger.error(f'Error while sending Slack notification: {e}')
+
     return
 
 def notification_telegram(message):
@@ -123,7 +142,7 @@ def notificaion_signal(message):
 
 
 if __name__ == '__main__':
-    result = "4 Container updated!"
+    result = "4 Containers updated!"
     dict_message = turn_message_into_dict(result)
 
     if notification_setup()['email']:
@@ -138,4 +157,11 @@ if __name__ == '__main__':
     if notification_setup()['teams']:
         notification_ntfy(dict_message)
 
-    
+    if notification_setup()['slack']:
+        notification_slack(dict_message)
+
+    #if notification_setup()['telegram']:
+    #    notification_slack(dict_message)
+
+    #if notification_setup()['signal']:
+    #    notification_slack(dict_message)
