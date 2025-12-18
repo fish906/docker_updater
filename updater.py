@@ -3,7 +3,6 @@ import docker
 import sys
 import os
 from typing import List, Dict, Set
-from pathlib import Path
 from datetime import datetime
 from croniter import croniter
 from dotenv import load_dotenv # type: ignore
@@ -12,7 +11,7 @@ import time
 load_dotenv()
 
 logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    level=logging.INFO,
     datefmt= '%Y/%m/%d %H:%M:%S',
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
@@ -251,84 +250,67 @@ class DockerUpdateChecker:
         print("\n" + "="*60)
 
 
-def load_env_file(env_path='.env') -> Dict[str, Set[str]]:
+def load_env_file():
     exclude_containers = set()
     exclude_images = set()
-    log_level = os.getenv("LOG_LEVEL", "default")
+    log_level = os.getenv("LOG_LEVEL", "default").upper()
     auto_update = False
     watchless_schedule = '0 0 * * *'
     watchless_clean = False
 
-    if not Path(env_path).exists():
-        logger.warning(f"No .env file found at {env_path}")
-        return {
-            'containers': exclude_containers,
-            'images': exclude_images,
-            'log_level': log_level,
-            'auto_update': auto_update,
-            'watchless_schedule': watchless_schedule,
-            'watchless_clean': watchless_clean
-        }
-
     try:
-        with open(env_path, 'r') as f:
-            for line in f:
-                line = line.strip()
+        if os.getenv("EXCLUDE_CONTAINERS"):
+            test = os.getenv("EXCLUDE_CONTAINERS").split(",")
+            for container in test:
+                container = container.strip()
+                if container:
+                    exclude_containers.add(container)
 
-                if not line or line.startswith('#'):
-                    continue
-                
-                if '=' in line:
-                    key, value = line.split('=', 1)
-                    key = key.strip()
-                    value = value.strip()
-                    
-                    if value.startswith('"') and value.endswith('"'):
-                        value = value[1:-1]
-                    elif value.startswith("'") and value.endswith("'"):
-                        value = value[1:-1]
-                    
-                    if key == 'EXCLUDE_CONTAINERS' and value:
-                        exclude_containers.update(
-                            item.strip() for item in value.split(',') if item.strip()
-                        )
-                    elif key == 'EXCLUDE_IMAGES' and value:
-                        exclude_images.update(
-                            item.strip() for item in value.split(',') if item.strip()
-                        )
-                    elif key == 'LOG_LEVEL' and value:
-                        log_level = value.upper()
+        if os.getenv("EXCLUDE_IMAGES"):
+            test = os.getenv("EXCLUDE_IMAGES").split(",")
+            for image in test:
+                image = image.strip()
+                if image:
+                    exclude_images.add(image)
 
-                    elif key == 'AUTO_UPDATE' and value:
-                        auto_update = value.lower() in ('true')
+        if os.getenv("AUTO_UPDATE"):
+            value = os.getenv("AUTO_UPDATE").lower()
+            if value == "true":
+                auto_update = True
+            else:
+                auto_update = False
 
-                    elif key == 'WATCHLESS_SCHEDULE' and value:
-                        watchless_schedule = value
+        if os.getenv("WATCHLESS_SCHEDULE"):
+            watchless_schedule = os.getenv("WATCHLESS_SCHEDULE")
 
-                    elif key == 'WATCHLESS_CLEAN' and value:
-                        watchless_clean = value.lower() in ('true')
-        
+        if os.getenv("WATCHLESS_CLEAN"):
+            value = os.getenv("WATCHLESS_CLEAN").lower()
+            if value == "true":
+                watchless_clean = True
+            else:
+                watchless_clean = False
+
         if exclude_containers:
-            logger.debug(f"Loaded {len(exclude_containers)} container exclusions from {env_path}")
+            logger.debug(f"Loaded {len(exclude_containers)} container exclusions from environment")
         
         if exclude_images:
-            logger.debug(f"Loaded {len(exclude_images)} image exclusions from {env_path}")
-
-        if log_level:
-            logger.debug(f"Log level set to {log_level} from {env_path}")
+            logger.debug(f"Loaded {len(exclude_images)} image exclusions from environment")
+        
+        if log_level != "INFO":
+            logger.debug(f"Log level set to {log_level} from environment")
         
         if auto_update:
-            logger.info(f"Auto-update enabled from {env_path}")
-
+            logger.info(f"Auto-update enabled from environment")
+        
         if watchless_schedule:
-            logger.info(f'Watchless schedule set to {watchless_schedule}')
-
+            logger.debug(f"Schedule set to: {watchless_schedule}")
+        
         if watchless_clean:
             logger.info(f"Watchless clean enabled - old images will be removed after updates")
 
     except Exception as e:
-        logger.error(f"Error reading .env file: {e}")
-    
+        logger.error(f"Error reading environment variables: {e}")
+
     return {
         'containers': exclude_containers,
         'images': exclude_images,
@@ -337,7 +319,6 @@ def load_env_file(env_path='.env') -> Dict[str, Set[str]]:
         'watchless_schedule': watchless_schedule,
         'watchless_clean': watchless_clean
     }
-
 
 def validate_cron_schedule(cron_expression: str) -> bool:
     try:
@@ -403,7 +384,7 @@ def run_update_check():
                 logger.info("All containers updated successfully!")
         
         elif results['updates_available']:
-            logger.info("\nUpdates are available! Set AUTO_UPDATE=true in .env to automatically update containers.")
+            logger.info("\nUpdates are available! Set AUTO_UPDATE=true to automatically update containers.")
 
         else:
             logger.info("All containers are up to date")
@@ -412,7 +393,7 @@ def run_update_check():
         logger.error(f"Error during scheduled update check: {e}")
 
 def main():
-    env_config = load_env_file('.env')
+    env_config = load_env_file()
 
     if env_config['log_level']:
         level = getattr(logging, env_config['log_level'], logging.INFO)
@@ -488,11 +469,12 @@ def main():
         
         results = checker.check_for_updates()
         checker.print_summary(results)
+
         
         if auto_update and results['updates_available']:
-            logger.info("\n" + "="*60)
+            print("\n" + "="*60)
             logger.info("AUTO_UPDATE enabled - Starting container updates...")
-            logger.info("="*60 + "\n")
+            print("="*60 + "\n")
             
             update_results = checker.update_containers(results['updates_available'])
             
