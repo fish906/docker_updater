@@ -3,6 +3,6 @@ logging
 docker
 requests
 pymsteams
-slack_sdk=3.39.0
-croniter=1.17.0
-python-telegram-bot=22.5
+slack_sdk==3.39.0
+croniter==1.17.0
+python-telegram-bot==22.5
