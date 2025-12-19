@@ -8,6 +8,21 @@ from croniter import croniter
 from dotenv import load_dotenv # type: ignore
 import time
 
+try:
+    from notification import (
+        notification_setup,
+        turn_message_into_dict,
+        notification_mail,
+        notification_ntfy,
+        notification_gotify,
+        notfication_teams,
+        notification_slack
+    )
+    NOTIFICATIONS_AVAILABLE = True
+except ImportError:
+    NOTIFICATIONS_AVAILABLE = False
+    logging.warning("Notification setup not found. Notifications will be disabled.")
+
 load_dotenv()
 
 logging.basicConfig(
@@ -320,6 +335,76 @@ def load_env_var():
         'watchless_clean': watchless_clean
     }
 
+def format_notification_message(check_results: Dict, update_results: Dict = None) -> str:
+    lines = []
+    lines.append("Docker Update Check Summary")
+    lines.append("=" * 40)
+    lines.append("")
+
+    if check_results['updates_available']:
+        lines.append(f"Updates Available: {len(check_results['updates_available'])}")
+        for item in check_results['updates_available']:
+            lines.append(f"  • {item['container']}: {item['image']}")
+        lines.append("")
+
+    if check_results['up_to_date']:
+        lines.append(f"Up to Date: {len(check_results['up_to_date'])}")
+        for item in check_results['up_to_date']:
+            lines.append(f"  • {item['container']}")
+        lines.append("")
+
+    if update_results:
+        lines.append("=" * 40)
+        lines.append("Update Results")
+        lines.append("=" * 40)
+        lines.append("")
+        
+        if update_results['successful']:
+            lines.append(f"Successfully Updated: {len(update_results['successful'])}")
+            for item in update_results['successful']:
+                lines.append(f"  ✓ {item['container']}: {item['image']}")
+            lines.append("")
+        
+        if update_results['failed']:
+            lines.append(f"Failed Updates: {len(update_results['failed'])}")
+            for item in update_results['failed']:
+                lines.append(f"  ✗ {item['container']}: {item['error']}")
+            lines.append("")
+    
+    return "\n".join(lines)
+
+def send_notifications(message: str):
+    if not NOTIFICATIONS_AVAILABLE:
+        logger.debug("Notifications not available (notification.py not found)")
+        return
+    
+    try:
+        notification_config = notification_setup()
+        dict_message = turn_message_into_dict(message)
+        
+        if notification_config['email'] and notification_config['email'].lower() == 'true':
+            logger.debug("Sending email notification...")
+            notification_mail(dict_message)
+        
+        if notification_config['ntfy'] and notification_config['ntfy'].lower() == 'true':
+            logger.debug("Sending ntfy notification...")
+            notification_ntfy(dict_message)
+        
+        if notification_config['gotify'] and notification_config['gotify'].lower() == 'true':
+            logger.debug("Sending Gotify notification...")
+            notification_gotify(dict_message)
+        
+        if notification_config['teams'] and notification_config['teams'].lower() == 'true':
+            logger.debug("Sending MS Teams notification...")
+            notfication_teams(dict_message)
+        
+        if notification_config['slack'] and notification_config['slack'].lower() == 'true':
+            logger.debug("Sending Slack notification...")
+            notification_slack(dict_message)
+            
+    except Exception as e:
+        logger.error(f"Error sending notifications: {e}")
+
 def validate_cron_schedule(cron_expression: str) -> bool:
     try:
         if cron_expression.lower() == 'false':
@@ -357,6 +442,8 @@ def run_update_check():
         
         results = checker.check_for_updates()
         checker.print_summary(results)
+
+        update_results = None
         
         if auto_update and results['updates_available']:
             logger.info("\n" + "="*60)
@@ -392,6 +479,9 @@ def run_update_check():
 
         else:
             logger.info("All containers are up to date")
+
+        notification_message = format_notification_message(results, update_results)
+        send_notifications(notification_message)
             
     except Exception as e:
         logger.error(f"Error during scheduled update check: {e}")
@@ -478,7 +568,8 @@ def main():
         results = checker.check_for_updates()
         checker.print_summary(results)
 
-        
+        update_results = None
+
         if auto_update and results['updates_available']:
             print("\n" + "="*60)
             logger.info("AUTO_UPDATE enabled - Starting container updates...")
@@ -511,6 +602,9 @@ def main():
             logger.info("\nUpdates are available! Set AUTO_UPDATE=true in .env to automatically update containers.")
         else:
             logger.info("All containers are up to date")
+
+        notification_message = format_notification_message(results, update_results)
+        send_notifications(notification_message)
 
 if __name__ == '__main__':
     main()
