@@ -250,7 +250,7 @@ class DockerUpdateChecker:
         print("\n" + "="*60)
 
 
-def load_env_file():
+def load_env_var():
     exclude_containers = set()
     exclude_images = set()
     log_level = os.getenv("LOG_LEVEL", "default").upper()
@@ -322,8 +322,12 @@ def load_env_file():
 
 def validate_cron_schedule(cron_expression: str) -> bool:
     try:
-        croniter(cron_expression)
-        return True
+        if cron_expression.lower() == 'false':
+            return "run_once"
+        
+        else:
+            croniter(cron_expression)
+            return True
     
     except Exception as e:
         logger.error(f"Invalid cron expression '{cron_expression}': {e}")
@@ -340,7 +344,7 @@ def run_update_check():
     print("="*60 + "\n")
     
     try:
-        env_config = load_env_file('.env')
+        env_config = load_env_var()
         
         exclude_containers = env_config['containers']
         exclude_images = env_config['images']
@@ -393,7 +397,7 @@ def run_update_check():
         logger.error(f"Error during scheduled update check: {e}")
 
 def main():
-    env_config = load_env_file()
+    env_config = load_env_var()
 
     if env_config['log_level']:
         level = getattr(logging, env_config['log_level'], logging.INFO)
@@ -414,7 +418,11 @@ def main():
         logger.info(f"Excluding image patterns: {', '.join(sorted(exclude_images))}")
 
     if watchless_schedule:
-        if not validate_cron_schedule(watchless_schedule):
+        if validate_cron_schedule(watchless_schedule) == 'run_once':
+            logger.info("Schedule set to false. Running once and exiting.")
+            watchless_schedule = None
+
+        elif not validate_cron_schedule(watchless_schedule):
             logger.error("Invalid cron schedule. Running once and exiting.")
             watchless_schedule = None
 
