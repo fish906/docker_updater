@@ -12,3 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 CMD ["python", "updater.py"]
+
+LABEL org.opencontainers.image.title="Watchless" \
+      org.opencontainers.image.version="1.0-beta" \
+      org.opencontainers.image.source="https://github.com/fish906/watchless"
