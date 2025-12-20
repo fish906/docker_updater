@@ -1,4 +1,4 @@
-name: Build & Push Watchless to Docker Hub
+name: Build & Push Watchless
 
 on:
   push:
@@ -22,15 +22,38 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Extract version from tag
+      - name: Extract version
         id: version
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
+          if [[ "$VERSION" == *-* ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
 
-      - name: Build and push image
+      - name: Generate Docker tags
+        id: tags
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          IS_PRERELEASE=${{ steps.version.outputs.is_prerelease }}
+
+          TAGS="${{ secrets.DOCKERHUB_USERNAME }}/watchless:$VERSION"
+
+          if [ "$IS_PRERELEASE" = "false" ]; then
+            MAJOR=$(echo $VERSION | cut -d. -f1)
+            MINOR=$(echo $VERSION | cut -d. -f2)
+            TAGS="$TAGS,${{ secrets.DOCKERHUB_USERNAME }}/watchless:$MAJOR.$MINOR"
+            TAGS="$TAGS,${{ secrets.DOCKERHUB_USERNAME }}/watchless:$MAJOR"
+            TAGS="$TAGS,${{ secrets.DOCKERHUB_USERNAME }}/watchless:latest"
+          fi
+
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+
+      - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/watchless:${{ steps.version.outputs.version }}
+          tags: ${{ steps.tags.outputs.tags }}
