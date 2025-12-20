@@ -117,8 +117,8 @@ The schedule uses standard cron format: `minute hour day month day_of_week`
 ```yaml
 environment:
   - EMAIL_NOTIFICATION=true
-  - SMTP_SERVER_URL=smtp.gmail.com
-  - MAIL_SENDER=your-email@gmail.com
+  - SMTP_SERVER_URL=smtp.mail.com
+  - MAIL_SENDER=your-email@mail.com
   - SMTP_PASSWORD=your-app-password
   - MAIL_RECEIVER=recipient@example.com
 ```
