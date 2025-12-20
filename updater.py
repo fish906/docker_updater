@@ -509,7 +509,7 @@ def main():
 
     if watchless_schedule:
         if validate_cron_schedule(watchless_schedule) == 'run_once':
-            logger.info("Schedule set to false. Running once and exiting.")
+            logger.info("Schedule set to false. Running once and exiting.\n" + 60* "–")
             watchless_schedule = None
 
         elif not validate_cron_schedule(watchless_schedule):
