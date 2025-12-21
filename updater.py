@@ -19,6 +19,7 @@ try:
         notification_slack
     )
     NOTIFICATIONS_AVAILABLE = True
+
 except ImportError:
     NOTIFICATIONS_AVAILABLE = False
     logging.warning("Notification setup not found. Notifications will be disabled.")
@@ -48,12 +49,12 @@ class DockerUpdateChecker:
 
     def should_exclude(self, container_name: str, image_name: str) -> bool:
         if container_name in self.exclude_containers:
-            logger.info(f"Excluding {container_name} (matched container name)")
+            logger.debug(f"Excluding {container_name} (matched container name)")
             return True
         
         for exclude_pattern in self.exclude_images:
             if exclude_pattern in image_name:
-                logger.info(f"Excluding {container_name} (matched image pattern: {exclude_pattern})")
+                logger.debug(f"Excluding {container_name} (matched image pattern: {exclude_pattern})")
                 return True
             
         return False
@@ -100,7 +101,7 @@ class DockerUpdateChecker:
                     return f"{repo}@{digest}"
                 
         except Exception as e:
-            logger.warning(f"Could not fetch remote digest for {image_name}: {e}")
+            logger.error(f"Could not fetch remote digest for {image_name}: {e}")
         
         return None
     
@@ -124,7 +125,7 @@ class DockerUpdateChecker:
             remote_digest = self.get_remote_digest(image_name)
             
             if not local_digest or not remote_digest:
-                logger.warning(f"Could not compare digests for {container_name}")
+                logger.error(f"Could not compare digests for {container_name}")
                 continue
             
             if local_digest != remote_digest:
@@ -408,6 +409,7 @@ def send_notifications(message: str):
 def validate_cron_schedule(cron_expression: str) -> bool:
     try:
         if cron_expression.lower() == 'false':
+            logger.debug("Validate schedule: Watchless schedule set to false. Running once and exiting.")
             return "run_once"
         
         else:
