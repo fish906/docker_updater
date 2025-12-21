@@ -6,6 +6,9 @@ A lightweight, automated Docker container update manager with multi-channel noti
 
 Watchless monitors your running Docker containers for image updates and can automatically update them on a schedule. It preserves container configurations, manages networks, and cleans up old images - all while keeping you informed through your preferred notification channels.
 
+**Why does this project exist?**
+I used Watchtower for updating all my Docker Containers. Unfortunately Watchtower had more and more problems, probably due to not being acitvely maintained anymore. At some point, I didn't want to put more time into fixing individual problems. So I had a little time on my hands and then wrote this script (in its basics).
+
 ## Features
 
 - **Automatic Update Detection** - Compares local and remote image digests without pulling
