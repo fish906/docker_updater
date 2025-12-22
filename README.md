@@ -173,7 +173,7 @@ services:
     container_name: watchless
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-environment:
+    environment:
       # Core Settings
       - LOG_LEVEL=INFO # DEBUG, INFO, WARNING, ERROR
       - AUTO_UPDATE=false # set to true for automated pulling and updating
